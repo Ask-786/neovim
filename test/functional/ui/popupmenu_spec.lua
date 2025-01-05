@@ -1162,6 +1162,8 @@ describe('builtin popupmenu', function()
         [6] = { foreground = Screen.colors.White, background = Screen.colors.Red },
         [7] = { background = Screen.colors.Yellow }, -- Search
         [8] = { foreground = Screen.colors.Red },
+        [9] = { foreground = Screen.colors.Yellow, background = Screen.colors.Green },
+        [10] = { foreground = Screen.colors.White, background = Screen.colors.Green },
         ks = { foreground = Screen.colors.Red, background = Screen.colors.Grey },
         kn = { foreground = Screen.colors.Red, background = Screen.colors.Plum1 },
         xs = { foreground = Screen.colors.Black, background = Screen.colors.Grey },
@@ -1542,6 +1544,81 @@ describe('builtin popupmenu', function()
     end)
 
     if not multigrid then
+      describe('popup and preview window do not overlap', function()
+        before_each(function()
+          screen:try_resize(53, 20)
+        end)
+
+        -- oldtest: Test_popup_and_previewwindow_dump_pedit()
+        it('with :pedit', function()
+          exec([[
+            set previewheight=9
+            silent! pedit
+            call setline(1, map(repeat(["ab"], 10), "v:val .. v:key"))
+            exec "norm! G\<C-E>\<C-E>"
+          ]])
+          feed('o')
+          n.poke_eventloop()
+          feed('<C-X><C-N>')
+          screen:expect([[
+            ab0                                                  |
+            ab1                                                  |
+            ab2                                                  |
+            ab3                                                  |
+            ab4                                                  |
+            ab5                                                  |
+            ab6                                                  |
+            ab7                                                  |
+            ab8                                                  |
+            {s:ab0            }{c: }{3:ew][+]                               }|
+            {n:ab1            }{c: }                                     |
+            {n:ab2            }{c: }                                     |
+            {n:ab3            }{c: }                                     |
+            {n:ab4            }{s: }                                     |
+            {n:ab5            }{s: }                                     |
+            {n:ab6            }{s: }                                     |
+            ab0^                                                  |
+            {1:~                                                    }|
+            {4:[No Name] [+]                                        }|
+            {2:-- Keyword Local completion (^N^P) }{5:match 1 of 10}     |
+          ]])
+        end)
+
+        -- oldtest: Test_popup_and_previewwindow_dump_pbuffer()
+        it('with :pbuffer', function()
+          exec([[
+            set previewheight=9
+            silent! pbuffer
+            call setline(1, map(repeat(["ab"], 10), "v:val .. v:key"))
+            exec "norm! G\<C-E>\<C-E>\<C-E>"
+          ]])
+          feed('o')
+          n.poke_eventloop()
+          feed('<C-X><C-N>')
+          screen:expect([[
+            ab0                                                  |
+            ab1                                                  |
+            ab2                                                  |
+            ab3                                                  |
+            ab4                                                  |
+            ab5                                                  |
+            ab6                                                  |
+            ab7                                                  |
+            ab8                                                  |
+            {s:ab0            }{c: }{3:ew][+]                               }|
+            {n:ab1            }{c: }                                     |
+            {n:ab2            }{c: }                                     |
+            {n:ab3            }{s: }                                     |
+            {n:ab4            }{s: }                                     |
+            {n:ab5            }{s: }                                     |
+            ab0^                                                  |
+            {1:~                                                    }|*2
+            {4:[No Name] [+]                                        }|
+            {2:-- Keyword Local completion (^N^P) }{5:match 1 of 10}     |
+          ]])
+        end)
+      end)
+
       -- oldtest: Test_pum_with_preview_win()
       it('preview window opened during completion', function()
         exec([[
@@ -1603,7 +1680,7 @@ describe('builtin popupmenu', function()
       end)
     end
 
-    describe('floating window preview #popup', function()
+    describe('floating window preview popup', function()
       it('pum popup preview', function()
         --row must > 10
         screen:try_resize(40, 11)
@@ -1616,14 +1693,29 @@ describe('builtin popupmenu', function()
           endfunc
           set omnifunc=Omni_test
           set completeopt=menu,popup
-
           funct Set_info()
             let comp_info = complete_info()
             if comp_info['selected'] == 2
               call nvim__complete_set(comp_info['selected'], {"info": "3info"})
             endif
           endfunc
-          autocmd CompleteChanged * call Set_info()
+          funct TsHl()
+            let comp_info = complete_info()
+            if get(comp_info, 'previewbufnr', 0) > 0
+              call v:lua.vim.treesitter.start(comp_info['preview_bufnr'], 'markdown')
+            endif
+            if comp_info['selected'] == 0
+              call nvim__complete_set(comp_info['selected'], {"info": "```lua\nfunction test()\n  print('foo')\nend\n```"})
+            endif
+          endfunc
+          augroup Group
+            au!
+            autocmd CompleteChanged * :call Set_info()
+          augroup END
+          funct TestTs()
+            autocmd! Group
+            autocmd CompleteChanged * call TsHl()
+          endfunc
         ]])
         feed('Gi<C-x><C-o>')
         --floating preview in right
@@ -1926,6 +2018,90 @@ describe('builtin popupmenu', function()
             {2:-- }{5:match 1 of 3}                         |
           ]],
           }
+        end
+        feed('<C-E><Esc>')
+
+        -- works when scroll with treesitter highlight
+        command('call TestTs()')
+        feed('S<C-x><C-o>')
+        if multigrid then
+          screen:expect({
+            grid = [[
+            ## grid 1
+              [2:----------------------------------------]|*10
+              [3:----------------------------------------]|
+            ## grid 2
+              one^                                     |
+              {1:~                                       }|*9
+            ## grid 3
+              {2:-- }{5:match 1 of 3}                         |
+            ## grid 5
+              {s:one                }|
+              {n:two                }|
+              {n:looooooooooooooong }|
+            ## grid 9
+              {n:```lua         }|
+              {n:function test()}|
+              {n:  print('foo') }|
+              {n:end            }|
+              {n:```            }|
+              {n:               }|
+            ]],
+            float_pos = {
+              [5] = { -1, 'NW', 2, 1, 0, false, 100 },
+              [9] = { 1005, 'NW', 1, 1, 19, false, 50 },
+            },
+            win_viewport = {
+              [2] = {
+                win = 1000,
+                topline = 0,
+                botline = 2,
+                curline = 0,
+                curcol = 3,
+                linecount = 1,
+                sum_scroll_delta = 0,
+              },
+              [9] = {
+                win = 1005,
+                topline = 0,
+                botline = 6,
+                curline = 0,
+                curcol = 0,
+                linecount = 5,
+                sum_scroll_delta = 0,
+              },
+            },
+            win_viewport_margins = {
+              [2] = {
+                bottom = 0,
+                left = 0,
+                right = 0,
+                top = 0,
+                win = 1000,
+              },
+              [9] = {
+                bottom = 0,
+                left = 0,
+                right = 0,
+                top = 0,
+                win = 1005,
+              },
+            },
+          })
+        else
+          screen:expect({
+            grid = [[
+              one^                                     |
+              {s:one                }{n:```lua         }{1:      }|
+              {n:two                function test()}{1:      }|
+              {n:looooooooooooooong   print('foo') }{1:      }|
+              {1:~                  }{n:end            }{1:      }|
+              {1:~                  }{n:```            }{1:      }|
+              {1:~                  }{n:               }{1:      }|
+              {1:~                                       }|*3
+              {2:-- }{5:match 1 of 3}                         |
+            ]],
+          })
         end
       end)
     end)
@@ -5485,6 +5661,198 @@ describe('builtin popupmenu', function()
           {2:--}          |
         ]])
         feed('<C-E><ESC>')
+      end)
+
+      -- oldtest: Test_pum_matchins_highlight()
+      it('with ComplMatchIns highlight', function()
+        exec([[
+          let g:change = 0
+          func Omni_test(findstart, base)
+            if a:findstart
+              return col(".")
+            endif
+            if g:change == 0
+              return [#{word: "foo"}, #{word: "bar"}, #{word: "你好"}]
+            endif
+            return [#{word: "foo", info: "info"}, #{word: "bar"}, #{word: "你好"}]
+          endfunc
+          set omnifunc=Omni_test
+          hi ComplMatchIns guifg=red
+        ]])
+
+        feed('Sαβγ <C-X><C-O>')
+        screen:expect([[
+          αβγ {8:foo}^                         |
+          {1:~  }{s: foo            }{1:             }|
+          {1:~  }{n: bar            }{1:             }|
+          {1:~  }{n: 你好           }{1:             }|
+          {1:~                               }|*15
+          {2:-- }{5:match 1 of 3}                 |
+        ]])
+        feed('<C-E><Esc>')
+
+        feed('Sαβγ <C-X><C-O><C-N>')
+        screen:expect([[
+          αβγ {8:bar}^                         |
+          {1:~  }{n: foo            }{1:             }|
+          {1:~  }{s: bar            }{1:             }|
+          {1:~  }{n: 你好           }{1:             }|
+          {1:~                               }|*15
+          {2:-- }{5:match 2 of 3}                 |
+        ]])
+        feed('<C-E><Esc>')
+
+        feed('Sαβγ <C-X><C-O><C-N><C-N>')
+        screen:expect([[
+          αβγ {8:你好}^                        |
+          {1:~  }{n: foo            }{1:             }|
+          {1:~  }{n: bar            }{1:             }|
+          {1:~  }{s: 你好           }{1:             }|
+          {1:~                               }|*15
+          {2:-- }{5:match 3 of 3}                 |
+        ]])
+        feed('<C-E><Esc>')
+
+        -- restore after accept
+        feed('Sαβγ <C-X><C-O><C-Y>')
+        screen:expect([[
+          αβγ foo^                         |
+          {1:~                               }|*18
+          {2:-- INSERT --}                    |
+        ]])
+        feed('<Esc>')
+
+        -- restore after cancel completion
+        feed('Sαβγ <C-X><C-O><Space>')
+        screen:expect([[
+          αβγ foo ^                        |
+          {1:~                               }|*18
+          {2:-- INSERT --}                    |
+        ]])
+        feed('<Esc>')
+
+        -- text after the inserted text shouldn't be highlighted
+        feed('0ea <C-X><C-O>')
+        screen:expect([[
+          αβγ {8:foo}^ foo                     |
+          {1:~  }{s: foo            }{1:             }|
+          {1:~  }{n: bar            }{1:             }|
+          {1:~  }{n: 你好           }{1:             }|
+          {1:~                               }|*15
+          {2:-- }{5:match 1 of 3}                 |
+        ]])
+        feed('<C-P>')
+        screen:expect([[
+          αβγ ^ foo                        |
+          {1:~  }{n: foo            }{1:             }|
+          {1:~  }{n: bar            }{1:             }|
+          {1:~  }{n: 你好           }{1:             }|
+          {1:~                               }|*15
+          {2:-- }{8:Back at original}             |
+        ]])
+        feed('<C-P>')
+        screen:expect([[
+          αβγ {8:你好}^ foo                    |
+          {1:~  }{n: foo            }{1:             }|
+          {1:~  }{n: bar            }{1:             }|
+          {1:~  }{s: 你好           }{1:             }|
+          {1:~                               }|*15
+          {2:-- }{5:match 3 of 3}                 |
+        ]])
+        feed('<C-Y>')
+        screen:expect([[
+          αβγ 你好^ foo                    |
+          {1:~                               }|*18
+          {2:-- INSERT --}                    |
+        ]])
+        feed('<Esc>')
+
+        feed(':let g:change=1<CR>S<C-X><C-O>')
+        screen:expect([[
+          info                            |
+          {1:~                               }|*2
+          {3:[Scratch] [Preview]             }|
+          {8:foo}^                             |
+          {s:foo            }{1:                 }|
+          {n:bar            }{1:                 }|
+          {n:你好           }{1:                 }|
+          {1:~                               }|*10
+          {4:[No Name] [+]                   }|
+          {2:-- }{5:match 1 of 3}                 |
+        ]])
+        feed('<Esc>')
+      end)
+
+      -- oldtest: Test_pum_matchins_highlight_combine()
+      it('with ComplMatchIns, Normal and CursorLine highlights', function()
+        exec([[
+          func Omni_test(findstart, base)
+            if a:findstart
+              return col(".")
+            endif
+            return [#{word: "foo"}, #{word: "bar"}, #{word: "你好"}]
+          endfunc
+          set omnifunc=Omni_test
+          hi Normal guibg=blue
+          hi CursorLine guibg=green guifg=white
+          set cursorline
+          call setline(1, 'aaa bbb')
+        ]])
+
+        -- when ComplMatchIns is not set, CursorLine applies normally
+        feed('0ea <C-X><C-O>')
+        screen:expect([[
+          {10:aaa foo^ bbb                     }|
+          {1:~  }{s: foo            }{1:             }|
+          {1:~  }{n: bar            }{1:             }|
+          {1:~  }{n: 你好           }{1:             }|
+          {1:~                               }|*15
+          {2:-- }{5:match 1 of 3}                 |
+        ]])
+        feed('<C-E>')
+        screen:expect([[
+          {10:aaa ^ bbb                        }|
+          {1:~                               }|*18
+          {2:-- INSERT --}                    |
+        ]])
+        feed('<BS><Esc>')
+
+        -- when ComplMatchIns is set, it is applied over CursorLine
+        command('hi ComplMatchIns guifg=Yellow')
+        feed('0ea <C-X><C-O>')
+        screen:expect([[
+          {10:aaa }{9:foo}{10:^ bbb                     }|
+          {1:~  }{s: foo            }{1:             }|
+          {1:~  }{n: bar            }{1:             }|
+          {1:~  }{n: 你好           }{1:             }|
+          {1:~                               }|*15
+          {2:-- }{5:match 1 of 3}                 |
+        ]])
+        feed('<C-P>')
+        screen:expect([[
+          {10:aaa ^ bbb                        }|
+          {1:~  }{n: foo            }{1:             }|
+          {1:~  }{n: bar            }{1:             }|
+          {1:~  }{n: 你好           }{1:             }|
+          {1:~                               }|*15
+          {2:-- }{8:Back at original}             |
+        ]])
+        feed('<C-P>')
+        screen:expect([[
+          {10:aaa }{9:你好}{10:^ bbb                    }|
+          {1:~  }{n: foo            }{1:             }|
+          {1:~  }{n: bar            }{1:             }|
+          {1:~  }{s: 你好           }{1:             }|
+          {1:~                               }|*15
+          {2:-- }{5:match 3 of 3}                 |
+        ]])
+        feed('<C-E>')
+        screen:expect([[
+          {10:aaa ^ bbb                        }|
+          {1:~                               }|*18
+          {2:-- INSERT --}                    |
+        ]])
+        feed('<Esc>')
       end)
     end
   end

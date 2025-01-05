@@ -1854,6 +1854,20 @@ describe('LSP', function()
         end,
       }
     end)
+
+    it('vim.lsp.start when existing client has no workspace_folders', function()
+      exec_lua(create_server_definition)
+      eq(
+        { 2, 'foo', 'foo' },
+        exec_lua(function()
+          local server = _G._create_server()
+          vim.lsp.start { cmd = server.cmd, name = 'foo' }
+          vim.lsp.start { cmd = server.cmd, name = 'foo', root_dir = 'bar' }
+          local foos = vim.lsp.get_clients()
+          return { #foos, foos[1].name, foos[2].name }
+        end)
+      )
+    end)
   end)
 
   describe('parsing tests', function()
@@ -6133,7 +6147,7 @@ describe('LSP', function()
           vim.lsp.config('*', { root_markers = { '.git' } })
           vim.lsp.config('foo', { cmd = { 'foo' } })
 
-          return vim.lsp._resolve_config('foo')
+          return vim.lsp.config['foo']
         end)
       )
     end)
@@ -6228,6 +6242,39 @@ describe('LSP', function()
           vim.bo.filetype = 'foo'
 
           return #vim.lsp.get_clients({ bufnr = vim.api.nvim_get_current_buf() })
+        end)
+      )
+    end)
+
+    it('supports a function for root_dir', function()
+      exec_lua(create_server_definition)
+
+      local tmp1 = t.tmpname(true)
+
+      eq(
+        'some_dir',
+        exec_lua(function()
+          local server = _G._create_server({
+            handlers = {
+              initialize = function(_, _, callback)
+                callback(nil, { capabilities = {} })
+              end,
+            },
+          })
+
+          vim.lsp.config('foo', {
+            cmd = server.cmd,
+            filetypes = { 'foo' },
+            root_dir = function(cb)
+              cb('some_dir')
+            end,
+          })
+          vim.lsp.enable('foo')
+
+          vim.cmd.edit(assert(tmp1))
+          vim.bo.filetype = 'foo'
+
+          return vim.lsp.get_clients({ bufnr = vim.api.nvim_get_current_buf() })[1].root_dir
         end)
       )
     end)

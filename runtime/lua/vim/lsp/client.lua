@@ -174,6 +174,10 @@ local validate = vim.validate
 --- capabilities.
 --- @field server_capabilities lsp.ServerCapabilities?
 ---
+--- Response from the server sent on `initialize` describing information about
+--- the server.
+--- @field server_info lsp.ServerInfo?
+---
 --- A ring buffer (|vim.ringbuf()|) containing progress messages
 --- sent by the server.
 --- @field progress vim.lsp.Client.Progress
@@ -556,6 +560,8 @@ function Client:initialize()
       self.offset_encoding = self.server_capabilities.positionEncoding
     end
 
+    self.server_info = result.serverInfo
+
     if next(self.settings) then
       self:notify(ms.workspace_didChangeConfiguration, { settings = self.settings })
     end
@@ -799,6 +805,8 @@ function Client:stop(force)
     return
   end
 
+  vim.lsp._watchfiles.cancel(self.id)
+
   if force or not self.initialized or self._graceful_shutdown_failed then
     rpc.terminate()
     return
@@ -813,7 +821,6 @@ function Client:stop(force)
       rpc.terminate()
       self._graceful_shutdown_failed = true
     end
-    vim.lsp._watchfiles.cancel(self.id)
   end)
 end
 

@@ -695,7 +695,7 @@ describe('API', function()
         pcall_err(request, 'nvim_call_dict_function', 42, 'f', { 1, 2 })
       )
       eq(
-        'Failed to evaluate dict expression',
+        'Vim:E121: Undefined variable: foo',
         pcall_err(request, 'nvim_call_dict_function', 'foo', 'f', { 1, 2 })
       )
       eq('dict not found', pcall_err(request, 'nvim_call_dict_function', '42', 'f', { 1, 2 }))
@@ -1957,6 +1957,16 @@ describe('API', function()
       api.nvim_set_current_win(api.nvim_list_wins()[2])
       eq(api.nvim_list_wins()[2], api.nvim_get_current_win())
     end)
+
+    it('failure modes', function()
+      n.command('split')
+
+      eq('Invalid window id: 9999', pcall_err(api.nvim_set_current_win, 9999))
+
+      -- XXX: force nvim_set_current_win to fail somehow.
+      n.command("au WinLeave * throw 'foo'")
+      eq('WinLeave Autocommands for "*": foo', pcall_err(api.nvim_set_current_win, 1000))
+    end)
   end)
 
   describe('nvim_{get,set}_current_tabpage, nvim_list_tabpages', function()
@@ -1975,6 +1985,16 @@ describe('API', function()
       api.nvim_set_current_tabpage(api.nvim_list_tabpages()[2])
       eq(api.nvim_list_tabpages()[2], api.nvim_get_current_tabpage())
       eq(api.nvim_list_wins()[2], api.nvim_get_current_win())
+    end)
+
+    it('failure modes', function()
+      n.command('tabnew')
+
+      eq('Invalid tabpage id: 999', pcall_err(api.nvim_set_current_tabpage, 999))
+
+      -- XXX: force nvim_set_current_tabpage to fail somehow.
+      n.command("au TabLeave * throw 'foo'")
+      eq('TabLeave Autocommands for "*": foo', pcall_err(api.nvim_set_current_tabpage, 1))
     end)
   end)
 
@@ -2684,7 +2704,8 @@ describe('API', function()
       -- :terminal with args + running process.
       command('enew')
       local progpath_esc = eval('shellescape(v:progpath)')
-      fn.termopen(('%s -u NONE -i NONE'):format(progpath_esc), {
+      fn.jobstart(('%s -u NONE -i NONE'):format(progpath_esc), {
+        term = true,
         env = { VIMRUNTIME = os.getenv('VIMRUNTIME') },
       })
       eq(-1, eval('jobwait([&channel], 0)[0]')) -- Running?
@@ -3765,7 +3786,7 @@ describe('API', function()
       screen:expect {
         grid = [[
                                                           |
-        {1:~}{102: }{4:                                       }{1:         }|
+        {1:~}{4:^                                        }{1:         }|
         {1:~}{4:                                        }{1:         }|*4
         {1:~                                                 }|*3
         {5:-- TERMINAL --}                                    |
@@ -3781,7 +3802,7 @@ describe('API', function()
       screen:expect {
         grid = [[
                                                           |
-        {1:~}{4:herrejösses!}{102: }{4:                           }{1:         }|
+        {1:~}{4:herrejösses!^                            }{1:         }|
         {1:~}{4:                                        }{1:         }|*4
         {1:~                                                 }|*3
         {5:-- TERMINAL --}                                    |
@@ -5364,8 +5385,53 @@ describe('API', function()
         13                                                          |
       ]],
     })
-    -- takes buffer line count from correct buffer with "win" and {0, -1} "range"
-    api.nvim__redraw({ win = 0, range = { 0, -1 } })
+  end)
+
+  it('nvim__redraw range parameter', function()
+    Screen.new(10, 5)
+    fn.setline(1, fn.range(4))
+
+    exec_lua([[
+      _G.lines_list = {}
+      ns = vim.api.nvim_create_namespace('')
+      vim.api.nvim_set_decoration_provider(ns, {
+        on_win = function()
+        end,
+        on_line = function(_, _, _, line)
+          table.insert(_G.lines_list, line)
+        end,
+      })
+      function _G.get_lines()
+        local lines = _G.lines_list
+        _G.lines_list = {}
+        return lines
+      end
+    ]])
+
+    api.nvim__redraw({ flush = true, valid = false })
+    exec_lua('_G.get_lines()')
+
+    local actual_lines = {}
+    local function test(range)
+      api.nvim__redraw({ win = 0, range = range })
+      table.insert(actual_lines, exec_lua('return _G.get_lines()'))
+    end
+
+    test({ 0, -1 })
+    test({ 2, 2 ^ 31 })
+    test({ 2, 2 ^ 32 })
+    test({ 2 ^ 31 - 1, 2 })
+    test({ 2 ^ 32 - 1, 2 })
+
+    local expected_lines = {
+      { 0, 1, 2, 3 },
+      { 2, 3 },
+      { 2, 3 },
+      {},
+      {},
+    }
+    eq(expected_lines, actual_lines)
+
     n.assert_alive()
   end)
 end)

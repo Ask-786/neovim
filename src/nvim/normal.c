@@ -52,6 +52,7 @@
 #include "nvim/mark_defs.h"
 #include "nvim/math.h"
 #include "nvim/mbyte.h"
+#include "nvim/mbyte_defs.h"
 #include "nvim/memline.h"
 #include "nvim/memline_defs.h"
 #include "nvim/memory.h"
@@ -5038,6 +5039,9 @@ static void nv_visual(cmdarg_T *cap)
         assert(cap->count0 >= INT_MIN && cap->count0 <= INT_MAX);
         curwin->w_curswant += resel_VIsual_vcol * cap->count0 - 1;
         curwin->w_cursor.lnum = lnum;
+        if (*p_sel == 'e') {
+          curwin->w_curswant++;
+        }
         coladvance(curwin, curwin->w_curswant);
       } else {
         curwin->w_set_curswant = true;
