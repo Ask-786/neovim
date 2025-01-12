@@ -5853,6 +5853,48 @@ describe('builtin popupmenu', function()
           {2:-- INSERT --}                    |
         ]])
         feed('<Esc>')
+
+        -- Does not highlight the compl leader
+        command('set cot+=menuone,noselect')
+        feed('S<C-X><C-O>')
+        local pum_start = [[
+          {10:^                                }|
+          {n:foo            }{1:                 }|
+          {n:bar            }{1:                 }|
+          {n:你好           }{1:                 }|
+          {1:~                               }|*15
+          {2:-- }{8:Back at original}             |
+        ]]
+        screen:expect(pum_start)
+        feed('f<C-N>')
+        screen:expect([[
+          {10:f}{9:oo}{10:^                             }|
+          {s:foo            }{1:                 }|
+          {1:~                               }|*17
+          {2:-- }{5:match 1 of 3}                 |
+        ]])
+        feed('<C-E><ESC>')
+
+        command('set cot+=fuzzy')
+        feed('S<C-X><C-O>')
+        screen:expect(pum_start)
+        feed('f<C-N>')
+        screen:expect([[
+          {10:foo^                             }|
+          {s:foo            }{1:                 }|
+          {1:~                               }|*17
+          {2:-- }{5:match 1 of 3}                 |
+        ]])
+        feed('<C-E><Esc>')
+
+        command('set cot-=fuzzy')
+        feed('Sf<C-N>')
+        screen:expect([[
+          {10:f^                               }|
+          {1:~                               }|*18
+          {2:-- }{6:Pattern not found}            |
+        ]])
+        feed('<C-E><Esc>')
       end)
     end
   end
